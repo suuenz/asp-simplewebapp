@@ -5,7 +5,7 @@ steps:
     args:
       [
         "build",
-        "-t", "us-docker.pkg.dev/${_PROJECT_ID}/${_IMAGE_NAME}:${_TAG}",
+        "-t", "us-docker.pkg.dev/${_PROJECT_ID}/gcr.io/${_IMAGE_NAME}:${_TAG}",
         "."
       ]
 
@@ -14,7 +14,7 @@ steps:
     args:
       [
         "push",
-        "us-docker.pkg.dev/${_PROJECT_ID}/${_IMAGE_NAME}:${_TAG}"
+        "us-docker.pkg.dev/${_PROJECT_ID}/gcr.io/${_IMAGE_NAME}:${_TAG}"
       ]
 
 substitutions:
