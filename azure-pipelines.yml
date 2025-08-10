@@ -1,0 +1,65 @@
+# azure-pipelines.yml
+
+trigger:
+- master
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  acrName: 'aspsimplewebapp'              # نام ACR
+  imageName: 'aspsimple'               # نام ایمیج
+  imageTag: 'v1.0'                     # تگ
+  webAppName: 'asp-webapp-1'           # نام Web App
+  resourceGroup: 'DefaultResourceGroup-CUS'   # RG وب‌اپ
+
+steps:
+- checkout: self
+
+# 1) Build & Push در خود ACR (نیازی به Docker@2 و لاگین ACR نیست)
+- task: AzureCLI@2
+  displayName: 'Build & Push image in ACR (az acr build)'
+  inputs:
+    azureSubscription: 'Azure subscription 1 (2edd3441-9535-4384-9f66-2e3fad269e4c)'   # Service Connection نوع ARM
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      set -e
+      echo "🔧 Building image $(imageName):$(imageTag) in ACR $(acrName)..."
+      az acr build \
+        --registry $(acrName) \
+        --image $(imageName):$(imageTag) \
+        --file Dockerfile \
+        .
+      echo "✅ Image pushed: $(acrName).azurecr.io/$(imageName):$(imageTag)"
+
+# 2) Deploy: تنظیم ایمیج روی Web App
+- task: AzureCLI@2
+  displayName: 'Deploy image to Web App (az cli)'
+  inputs:
+    azureSubscription: 'Azure subscription 1 (2edd3441-9535-4384-9f66-2e3fad269e4c)'
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      set -e
+      echo "⚙️  Configuring container image on Web App..."
+      az webapp config container set \
+        --name $(webAppName) \
+        --resource-group $(resourceGroup) \
+        --docker-custom-image-name $(acrName).azurecr.io/$(imageName):$(imageTag) \
+        --docker-registry-server-url https://$(acrName).azurecr.io
+
+      echo "🔧 Ensuring WEBSITES_PORT=8080"
+      az webapp config appsettings set \
+        --name $(webAppName) \
+        --resource-group $(resourceGroup) \
+        --settings WEBSITES_PORT=8080
+
+      echo "🔄 Restarting Web App..."
+      az webapp restart --name $(webAppName) --resource-group $(resourceGroup)
+
+# 3) Probe پورت 8080 تا 60 ثانیه 
+- bash: |
+    echo "⏳ Waiting up to 60s probing :8080"
+    sleep 60
+  displayName: 'Probe 8080'
