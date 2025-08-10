@@ -1,0 +1,28 @@
+
+steps:
+  # 1) Build image from Dockerfile
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      [
+        "build",
+        "-t", "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_IMAGE_NAME}:${_TAG}",
+        "."
+      ]
+
+  # 2) Push image to Artifact Registry
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      [
+        "push",
+        "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_REPO}/${_IMAGE_NAME}:${_TAG}"
+      ]
+
+substitutions:
+  _PROJECT_ID: "eighth-vehicle-466618-g2"     # GCP Project ID
+  _REGION: "us-central1"                       # Region
+  _REPO: "aspsimplecontainer"                  # Artifact Registry repo (type: Docker)
+  _IMAGE_NAME: "aspsimple"                     # اسم ایمیج
+  _TAG: "v1.0"                                 # تگ
+
+options:
+  logging: CLOUD_LOGGING_ONLY
