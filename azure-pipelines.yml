@@ -1,5 +1,6 @@
 # azure-pipelines.yml
-# Build → Push → Deploy (Azure CLI) → Probe :8080
+# Build (az acr build) → Deploy (az webapp config container set) → Probe :8080
+# بدون Docker روی Agent، بدون Admin User و بدون Publish Profile
 
 trigger:
 - master
@@ -8,58 +9,58 @@ pool:
   vmImage: ubuntu-latest
 
 variables:
-  acrName: 'eshopweb2025'        # نام ACR
-  imageName: 'aspsimple'         # نام ایمیج
-  imageTag: 'v1.0'               # تگ
-  webAppName: 'eshop-webapp'     # نام Web App
-  resourceGroup: 'DefaultResourceGroup-CUS'      # نام Resource Group وب‌اپ
+  acrName: 'eshopweb2025'              # نام ACR
+  imageName: 'aspsimple'               # نام ایمیج
+  imageTag: 'v1.0'                     # تگ
+  webAppName: 'eshop-webapp'           # نام Web App
+  resourceGroup: 'DefaultResourceGroup-CUS'   # RG وب‌اپ
 
 steps:
 - checkout: self
 
-# 1) Login به ACR با Service Connection (Docker Registry)
-- task: Docker@2
-  displayName: 'Login to ACR'
-  inputs:
-    command: 'login'
-    containerRegistry: 'eshopweb2025-7603'     # ← Service Connection نوع Docker Registry
-
-# 2) Build & Push ایمیج به ACR
-- task: Docker@2
-  displayName: 'Build & Push image'
-  inputs:
-    command: 'buildAndPush'
-    repository: '$(acrName).azurecr.io/$(imageName)'
-    Dockerfile: '**/Dockerfile'
-    tags: |
-      $(imageTag)
-
-# 3) Deploy: ست‌کردن ایمیج روی Web App با Azure CLI (بدون اکستنشن اضافی)
+# 1) Build & Push در خود ACR (نیازی به Docker@2 و لاگین ACR نیست)
 - task: AzureCLI@2
-  displayName: 'Deploy image to Web App (az cli)'
+  displayName: 'Build & Push image in ACR (az acr build)'
   inputs:
-    azureSubscription: 'Azure subscription 1 (2edd3441-9535-4384-9f66-2e3fad269e4c)'   # ← Service Connection نوع Azure Resource Manager
+    azureSubscription: 'Azure subscription 1 (2edd3441-9535-4384-9f66-2e3fad269e4c)'   # Service Connection نوع ARM
     scriptType: 'bash'
     scriptLocation: 'inlineScript'
     inlineScript: |
       set -e
-      echo "Configuring container image on Web App..."
+      echo "🔧 Building image $(imageName):$(imageTag) in ACR $(acrName)..."
+      az acr build \
+        --registry $(acrName) \
+        --image $(imageName):$(imageTag) \
+        --file Dockerfile \
+        .
+      echo "✅ Image pushed: $(acrName).azurecr.io/$(imageName):$(imageTag)"
+
+# 2) Deploy: تنظیم ایمیج روی Web App
+- task: AzureCLI@2
+  displayName: 'Deploy image to Web App (az cli)'
+  inputs:
+    azureSubscription: 'Azure subscription 1 (2edd3441-9535-4384-9f66-2e3fad269e4c)'
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      set -e
+      echo "⚙️  Configuring container image on Web App..."
       az webapp config container set \
         --name $(webAppName) \
         --resource-group $(resourceGroup) \
         --docker-custom-image-name $(acrName).azurecr.io/$(imageName):$(imageTag) \
         --docker-registry-server-url https://$(acrName).azurecr.io
 
-      # اطمینان از ست بودن پورت Kestrel
+      echo "🔧 Ensuring WEBSITES_PORT=8080"
       az webapp config appsettings set \
         --name $(webAppName) \
         --resource-group $(resourceGroup) \
         --settings WEBSITES_PORT=8080
 
-      echo "Restarting Web App..."
+      echo "🔄 Restarting Web App..."
       az webapp restart --name $(webAppName) --resource-group $(resourceGroup)
 
-# 4) پروب پورت 8080 تا 120 ثانیه (هر 5 ثانیه)
+# 3) Probe پورت 8080 تا 120 ثانیه (هر 5 ثانیه)
 - bash: |
     echo "⏳ Waiting up to 120s for warm-up & probing :8080"
     for i in {1..24}; do
