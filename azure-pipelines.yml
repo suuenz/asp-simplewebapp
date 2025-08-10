@@ -1,43 +1,75 @@
-name: Build & Push to ACR (Auto-deploy via Web App CD)
+# azure-pipelines.yml
+# Build → Push → Deploy (Azure CLI) → Probe :8080
 
-on:
-  push:
-    branches: [ "master" ]
+trigger:
+- master
 
-jobs:
-  build-push-test:
-    runs-on: ubuntu-latest
-    steps:
-      # 0) سورس
-      - name: Checkout
-        uses: actions/checkout@v4
+pool:
+  vmImage: ubuntu-latest
 
-      # 1) Login به ACR با Admin User
-      #    در ریپو دو سکرت بساز: ACR_USERNAME , ACR_PASSWORD
-      - name: Login to ACR
-        uses: docker/login-action@v3
-        with:
-          registry: eshopweb2025.azurecr.io
-          username: '$(secrets.ACR_USERNAME)'
-          password: '$(secrets.ACR_PASSWORD)'
+variables:
+  acrName: 'eshopweb2025'        # نام ACR
+  imageName: 'aspsimple'         # نام ایمیج
+  imageTag: 'v1.0'               # تگ
+  webAppName: 'eshop-webapp'     # نام Web App
+  resourceGroup: 'DefaultResourceGroup-CUS'      # نام Resource Group وب‌اپ
 
-      # 2) Build ایمیج
-      - name: Build image aspsimple:v1.0
-        run: docker build -t eshopweb2025.azurecr.io/aspsimple:v1.0 .
+steps:
+- checkout: self
 
-      # 3) Push ایمیج
-      - name: Push image
-        run: docker push eshopweb2025.azurecr.io/aspsimple:v1.0
+# 1) Login به ACR با Service Connection (Docker Registry)
+- task: Docker@2
+  displayName: 'Login to ACR'
+  inputs:
+    command: 'login'
+    containerRegistry: 'eshopweb2025-7603'     # ← Service Connection نوع Docker Registry
 
-      # 4) صبر 2 دقیقه تا Web App ایمیج رو بکشه
-      - name: Wait 2 minutes for Web App pull
-        run: |
-          echo "⏳ Waiting 120s for Web App to pull the new image..."
-          sleep 120
+# 2) Build & Push ایمیج به ACR
+- task: Docker@2
+  displayName: 'Build & Push image'
+  inputs:
+    command: 'buildAndPush'
+    repository: '$(acrName).azurecr.io/$(imageName)'
+    Dockerfile: '**/Dockerfile'
+    tags: |
+      $(imageTag)
 
-      # 5) تست خروجی روی پورت 8080
-      #    آدرس وب‌اپت رو جایگزین کن
-      - name: Probe port 8080
-        run: |
-          echo "🔍 Probing http://eshop-webapp.azurewebsites.net:8080 ..."
-          curl -v http://eshop-webapp.azurewebsites.net:8080 || exit 1
+# 3) Deploy: ست‌کردن ایمیج روی Web App با Azure CLI (بدون اکستنشن اضافی)
+- task: AzureCLI@2
+  displayName: 'Deploy image to Web App (az cli)'
+  inputs:
+    azureSubscription: 'Azure subscription 1 (2edd3441-9535-4384-9f66-2e3fad269e4c)'   # ← Service Connection نوع Azure Resource Manager
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      set -e
+      echo "Configuring container image on Web App..."
+      az webapp config container set \
+        --name $(webAppName) \
+        --resource-group $(resourceGroup) \
+        --docker-custom-image-name $(acrName).azurecr.io/$(imageName):$(imageTag) \
+        --docker-registry-server-url https://$(acrName).azurecr.io
+
+      # اطمینان از ست بودن پورت Kestrel
+      az webapp config appsettings set \
+        --name $(webAppName) \
+        --resource-group $(resourceGroup) \
+        --settings WEBSITES_PORT=8080
+
+      echo "Restarting Web App..."
+      az webapp restart --name $(webAppName) --resource-group $(resourceGroup)
+
+# 4) پروب پورت 8080 تا 120 ثانیه (هر 5 ثانیه)
+- bash: |
+    echo "⏳ Waiting up to 120s for warm-up & probing :8080"
+    for i in {1..24}; do
+      if curl -fsS "http://$(webAppName).azurewebsites.net:8080" >/dev/null; then
+        echo "✅ Up on :8080"
+        exit 0
+      fi
+      echo "…still waiting ($i/24)"
+      sleep 5
+    done
+    echo "❌ No response on :8080 within 120s"
+    exit 1
+  displayName: 'Warm-up & Probe 8080'
