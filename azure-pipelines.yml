@@ -62,6 +62,6 @@ steps:
 
 # 3) Probe پورت 8080 تا 120 ثانیه (هر 5 ثانیه)
 - bash: |
-    echo "⏳ Waiting up to 120s for warm-up & probing :8080"
+    echo "⏳ Waiting up to 60s for warm-up & probing :8080"
     sleep 60
   displayName: 'Warm-up & Probe 8080'
