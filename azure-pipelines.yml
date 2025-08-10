@@ -1,0 +1,43 @@
+name: Build & Push to ACR (Auto-deploy via Web App CD)
+
+on:
+  push:
+    branches: [ "master" ]
+
+jobs:
+  build-push-test:
+    runs-on: ubuntu-latest
+    steps:
+      # 0) سورس
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 1) Login به ACR با Admin User
+      #    در ریپو دو سکرت بساز: ACR_USERNAME , ACR_PASSWORD
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: eshopweb2025.azurecr.io
+          username: '$(secrets.ACR_USERNAME)'
+          password: '$(secrets.ACR_PASSWORD)'
+
+      # 2) Build ایمیج
+      - name: Build image aspsimple:v1.0
+        run: docker build -t eshopweb2025.azurecr.io/aspsimple:v1.0 .
+
+      # 3) Push ایمیج
+      - name: Push image
+        run: docker push eshopweb2025.azurecr.io/aspsimple:v1.0
+
+      # 4) صبر 2 دقیقه تا Web App ایمیج رو بکشه
+      - name: Wait 2 minutes for Web App pull
+        run: |
+          echo "⏳ Waiting 120s for Web App to pull the new image..."
+          sleep 120
+
+      # 5) تست خروجی روی پورت 8080
+      #    آدرس وب‌اپت رو جایگزین کن
+      - name: Probe port 8080
+        run: |
+          echo "🔍 Probing http://eshop-webapp.azurewebsites.net:8080 ..."
+          curl -v http://eshop-webapp.azurewebsites.net:8080 || exit 1
